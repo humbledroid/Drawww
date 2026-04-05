@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct DrawwwApp: App {
@@ -13,5 +14,11 @@ struct DrawwwApp: App {
         WindowGroup {
             ContentView()
         }
+        .modelContainer(for: [
+            FloorPlanProject.self,
+            WallSegment.self,
+            DimensionLine.self,
+            TextLabel.self
+        ])
     }
 }
