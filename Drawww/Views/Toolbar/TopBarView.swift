@@ -67,7 +67,7 @@ struct TopBarView: View {
             Button(action: { canvasState.showGrid.toggle() }) {
                 Image(systemName: canvasState.showGrid ? "grid" : "grid.circle")
                     .font(.system(size: 16))
-                    .foregroundStyle(canvasState.showGrid ? .accentColor : .secondary)
+                    .foregroundColor(canvasState.showGrid ? .accentColor : .secondary)
             }
 
             // Zoom indicator
@@ -113,7 +113,7 @@ struct UnitToggleView: View {
                                 : Color.clear,
                             in: RoundedRectangle(cornerRadius: 4)
                         )
-                        .foregroundStyle(project.unitSystem == unit ? .accentColor : .secondary)
+                        .foregroundColor(project.unitSystem == unit ? .accentColor : .secondary)
                 }
                 .buttonStyle(.plain)
             }
