@@ -35,5 +35,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: [FloorPlanProject.self, WallSegment.self, DimensionLine.self, TextLabel.self], inMemory: true)
+        .modelContainer(for: [FloorPlanProject.self, WallSegment.self, DimensionLine.self, TextLabel.self, DraftingShape.self, SectionCutLine.self, HeightMarker.self, StairSymbol.self, HatchRegion.self, ElevationArrow.self], inMemory: true)
 }

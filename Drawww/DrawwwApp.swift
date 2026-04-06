@@ -18,7 +18,13 @@ struct DrawwwApp: App {
             FloorPlanProject.self,
             WallSegment.self,
             DimensionLine.self,
-            TextLabel.self
+            TextLabel.self,
+            DraftingShape.self,
+            SectionCutLine.self,
+            HeightMarker.self,
+            StairSymbol.self,
+            HatchRegion.self,
+            ElevationArrow.self
         ])
     }
 }

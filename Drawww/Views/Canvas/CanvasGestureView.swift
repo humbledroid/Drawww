@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 /// UIViewRepresentable that handles Apple Pencil input separately from touch gestures.
-/// Pencil → drawing; Finger → pan/zoom. This is critical for the floor plan UX.
+/// Pencil → drawing; Finger → pan/zoom. Also handles Pencil Pro squeeze for radial menu.
 struct CanvasGestureView: UIViewRepresentable {
     @Bindable var canvasState: CanvasState
     let canvasSize: CGSize
@@ -11,6 +11,7 @@ struct CanvasGestureView: UIViewRepresentable {
     var onPencilMoved: (CGPoint) -> Void
     var onPencilEnded: (CGPoint) -> Void
     var onTapAt: (CGPoint) -> Void
+    var onPencilSqueeze: (CGPoint) -> Void
 
     func makeUIView(context: Context) -> CanvasGestureUIView {
         let view = CanvasGestureUIView()
@@ -30,9 +31,13 @@ struct CanvasGestureView: UIViewRepresentable {
         pinchGesture.allowedTouchTypes = [UITouch.TouchType.direct.rawValue as NSNumber]
         view.addGestureRecognizer(pinchGesture)
 
-        // Allow simultaneous gestures
         panGesture.delegate = context.coordinator
         pinchGesture.delegate = context.coordinator
+
+        // Apple Pencil Pro squeeze interaction
+        let pencilInteraction = UIPencilInteraction()
+        pencilInteraction.delegate = context.coordinator
+        view.addInteraction(pencilInteraction)
 
         return view
     }
@@ -43,6 +48,7 @@ struct CanvasGestureView: UIViewRepresentable {
         context.coordinator.onPencilMoved = onPencilMoved
         context.coordinator.onPencilEnded = onPencilEnded
         context.coordinator.onTapAt = onTapAt
+        context.coordinator.onPencilSqueeze = onPencilSqueeze
     }
 
     func makeCoordinator() -> Coordinator {
@@ -51,52 +57,76 @@ struct CanvasGestureView: UIViewRepresentable {
             onPencilBegan: onPencilBegan,
             onPencilMoved: onPencilMoved,
             onPencilEnded: onPencilEnded,
-            onTapAt: onTapAt
+            onTapAt: onTapAt,
+            onPencilSqueeze: onPencilSqueeze
         )
     }
 
     // MARK: - Coordinator
 
-    class Coordinator: NSObject, UIGestureRecognizerDelegate, CanvasGestureUIViewDelegate {
+    class Coordinator: NSObject, UIGestureRecognizerDelegate, CanvasGestureUIViewDelegate, UIPencilInteractionDelegate {
         var canvasState: CanvasState
         var onPencilBegan: (CGPoint) -> Void
         var onPencilMoved: (CGPoint) -> Void
         var onPencilEnded: (CGPoint) -> Void
         var onTapAt: (CGPoint) -> Void
+        var onPencilSqueeze: (CGPoint) -> Void
 
         private var lastPanTranslation: CGPoint = .zero
         private var initialZoom: CGFloat = 1.0
+        private var lastPencilLocation: CGPoint = .zero
 
         init(
             canvasState: CanvasState,
             onPencilBegan: @escaping (CGPoint) -> Void,
             onPencilMoved: @escaping (CGPoint) -> Void,
             onPencilEnded: @escaping (CGPoint) -> Void,
-            onTapAt: @escaping (CGPoint) -> Void
+            onTapAt: @escaping (CGPoint) -> Void,
+            onPencilSqueeze: @escaping (CGPoint) -> Void
         ) {
             self.canvasState = canvasState
             self.onPencilBegan = onPencilBegan
             self.onPencilMoved = onPencilMoved
             self.onPencilEnded = onPencilEnded
             self.onTapAt = onTapAt
+            self.onPencilSqueeze = onPencilSqueeze
         }
 
-        // MARK: - Pencil Touch Handling (from CanvasGestureUIView)
+        // MARK: - Pencil Touch Handling
 
         func pencilTouchBegan(at point: CGPoint, touch: UITouch) {
+            lastPencilLocation = point
             onPencilBegan(point)
         }
 
         func pencilTouchMoved(at point: CGPoint, touch: UITouch) {
+            lastPencilLocation = point
             onPencilMoved(point)
         }
 
         func pencilTouchEnded(at point: CGPoint, touch: UITouch) {
+            lastPencilLocation = point
             onPencilEnded(point)
         }
 
         func fingerTapped(at point: CGPoint) {
             onTapAt(point)
+        }
+
+        // MARK: - UIPencilInteractionDelegate (Pencil Pro squeeze)
+
+        func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
+            // Double-tap barrel → toggle last two tools
+            canvasState.toggleLastTwoTools()
+        }
+
+        @available(iOS 17.5, *)
+        func pencilInteraction(_ interaction: UIPencilInteraction,
+                               didReceiveSqueeze squeeze: UIPencilInteraction.Squeeze) {
+            if squeeze.phase == .began {
+                // Show radial menu at the last known pencil position
+                onPencilSqueeze(lastPencilLocation)
+            }
         }
 
         // MARK: - Pan Gesture
@@ -136,7 +166,6 @@ struct CanvasGestureView: UIViewRepresentable {
         // MARK: - UIGestureRecognizerDelegate
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            // Allow pan + pinch simultaneously
             return true
         }
     }
@@ -151,9 +180,6 @@ protocol CanvasGestureUIViewDelegate: AnyObject {
     func fingerTapped(at point: CGPoint)
 }
 
-/// UIView subclass that distinguishes Apple Pencil touches from finger touches.
-/// Pencil touches are forwarded to the delegate for drawing.
-/// Finger touches are left for gesture recognizers (pan/zoom).
 class CanvasGestureUIView: UIView {
     weak var delegate: CanvasGestureUIViewDelegate?
     private var activePencilTouch: UITouch?
@@ -165,8 +191,6 @@ class CanvasGestureUIView: UIView {
             if touch.type == .pencil || touch.type == .stylus {
                 activePencilTouch = touch
                 let location = touch.location(in: self)
-
-                // Use predicted touches for lower latency
                 if let predicted = event?.predictedTouches(for: touch), let last = predicted.last {
                     delegate?.pencilTouchBegan(at: last.location(in: self), touch: touch)
                 } else {
@@ -182,7 +206,6 @@ class CanvasGestureUIView: UIView {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             if touch === activePencilTouch {
-                // Use predicted touches for lower latency during drawing
                 if let predicted = event?.predictedTouches(for: touch), let last = predicted.last {
                     delegate?.pencilTouchMoved(at: last.location(in: self), touch: touch)
                 } else {
@@ -197,11 +220,9 @@ class CanvasGestureUIView: UIView {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             if touch === activePencilTouch {
-                let location = touch.location(in: self)
-                delegate?.pencilTouchEnded(at: location, touch: touch)
+                delegate?.pencilTouchEnded(at: touch.location(in: self), touch: touch)
                 activePencilTouch = nil
             } else if touch.type == .direct && !fingerMoved {
-                // Finger tap (not pan/zoom)
                 if let start = fingerTouchStart {
                     delegate?.fingerTapped(at: start)
                 }

@@ -1,14 +1,35 @@
 import Foundation
 import SwiftUI
+import PencilKit
 import Combine
 
 // MARK: - Drawing Tool
 
 enum DrawingTool: String, CaseIterable, Identifiable {
+    // Core tools
     case wall
     case select
     case eraser
-    case annotation
+
+    // Paper-like tools
+    case sketch          // freeform PencilKit with pressure
+    case smartSketch     // sketch with shape recognition
+
+    // Drafting primitives
+    case line            // straight line with style/weight
+    case circle
+    case arc
+    case rectangle
+
+    // Elevation tools
+    case sectionCut
+    case heightMarker
+    case stairSymbol
+    case hatchRegion
+    case elevationArrow
+
+    // Annotation tools
+    case constructionLine
     case dimensionLine
     case textLabel
 
@@ -19,8 +40,19 @@ enum DrawingTool: String, CaseIterable, Identifiable {
         case .wall: return "Wall"
         case .select: return "Select"
         case .eraser: return "Eraser"
-        case .annotation: return "Annotate"
-        case .dimensionLine: return "Dimension"
+        case .sketch: return "Sketch"
+        case .smartSketch: return "Smart"
+        case .line: return "Line"
+        case .circle: return "Circle"
+        case .arc: return "Arc"
+        case .rectangle: return "Rect"
+        case .sectionCut: return "Section"
+        case .heightMarker: return "Height"
+        case .stairSymbol: return "Stairs"
+        case .hatchRegion: return "Hatch"
+        case .elevationArrow: return "Elev."
+        case .constructionLine: return "Guide"
+        case .dimensionLine: return "Dim."
         case .textLabel: return "Label"
         }
     }
@@ -30,10 +62,61 @@ enum DrawingTool: String, CaseIterable, Identifiable {
         case .wall: return "line.diagonal"
         case .select: return "cursorarrow"
         case .eraser: return "eraser"
-        case .annotation: return "pencil.tip"
+        case .sketch: return "pencil.tip"
+        case .smartSketch: return "pencil.tip.crop.circle"
+        case .line: return "line.diagonal"
+        case .circle: return "circle"
+        case .arc: return "circle.bottomhalf.filled"
+        case .rectangle: return "rectangle"
+        case .sectionCut: return "scissors"
+        case .heightMarker: return "arrow.up.and.down.text.horizontal"
+        case .stairSymbol: return "stairs"
+        case .hatchRegion: return "square.fill.on.square.fill"
+        case .elevationArrow: return "arrow.up.circle"
+        case .constructionLine: return "line.3.horizontal"
         case .dimensionLine: return "ruler"
         case .textLabel: return "textformat"
         }
+    }
+
+    /// Grouping for the tool palette
+    var group: ToolGroup {
+        switch self {
+        case .wall, .select, .eraser: return .core
+        case .sketch, .smartSketch: return .paper
+        case .line, .circle, .arc, .rectangle: return .drafting
+        case .sectionCut, .heightMarker, .stairSymbol, .hatchRegion, .elevationArrow: return .elevation
+        case .constructionLine, .dimensionLine, .textLabel: return .annotation
+        }
+    }
+
+    /// Tools shown in the radial menu (most used)
+    static var radialMenuTools: [DrawingTool] {
+        [.wall, .sketch, .smartSketch, .select, .eraser, .line]
+    }
+}
+
+enum ToolGroup: String, CaseIterable, Identifiable {
+    case core
+    case paper
+    case drafting
+    case elevation
+    case annotation
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .core: return "Core"
+        case .paper: return "Sketch"
+        case .drafting: return "Draft"
+        case .elevation: return "Elevation"
+        case .annotation: return "Annotate"
+        }
+    }
+
+    var tools: [DrawingTool] {
+        DrawingTool.allCases.filter { $0.group == self }
     }
 }
 
@@ -70,8 +153,14 @@ struct GuideLine {
 
 enum SelectionItem: Equatable {
     case wall(UUID)
+    case draftingShape(UUID)
     case dimensionLine(UUID)
     case textLabel(UUID)
+    case sectionCut(UUID)
+    case heightMarker(UUID)
+    case stairSymbol(UUID)
+    case hatchRegion(UUID)
+    case elevationArrow(UUID)
 }
 
 // MARK: - Undo Action
@@ -84,6 +173,23 @@ enum CanvasAction {
     case removeDimensionLine(DimensionLine)
     case addTextLabel(TextLabel)
     case removeTextLabel(TextLabel)
+    case addDraftingShape(DraftingShape)
+    case removeDraftingShape(DraftingShape)
+    case addSectionCut(SectionCutLine)
+    case removeSectionCut(SectionCutLine)
+    case addHeightMarker(HeightMarker)
+    case removeHeightMarker(HeightMarker)
+    case addStairSymbol(StairSymbol)
+    case removeStairSymbol(StairSymbol)
+    case sketchStrokeChanged
+}
+
+// MARK: - Active Line Style (for drafting tools)
+
+@Observable
+final class ActiveLineProperties {
+    var style: LineStyle = .solid
+    var weight: LineWeight = .medium
 }
 
 // MARK: - Canvas State (Observable)
@@ -94,6 +200,9 @@ final class CanvasState {
     var activeTool: DrawingTool = .wall
     var previousTool: DrawingTool = .select
 
+    // Line properties for drafting tools
+    var lineProperties = ActiveLineProperties()
+
     // Viewport
     var viewportOffset: CGSize = .zero
     var viewportZoom: CGFloat = 1.0
@@ -102,6 +211,12 @@ final class CanvasState {
     var isDrawing: Bool = false
     var drawingStartPoint: SerializablePoint?
     var drawingCurrentPoint: SerializablePoint?
+
+    // Smart sketch — collected points during a stroke
+    var smartSketchPoints: [SerializablePoint] = []
+
+    // PencilKit freeform drawing
+    var sketchDrawing: PKDrawing = PKDrawing()
 
     // Snap/guide state
     var activeGuideLines: [GuideLine] = []
@@ -118,6 +233,13 @@ final class CanvasState {
     var liveMeasurementText: String?
     var liveMeasurementPosition: SerializablePoint?
     var liveMeasurementAngle: Double = 0
+
+    // Radial menu
+    var showRadialMenu: Bool = false
+    var radialMenuPosition: CGPoint = .zero
+
+    // Construction lines visibility
+    var showConstructionLines: Bool = true
 
     // Undo/Redo stacks
     var undoStack: [CanvasAction] = []
@@ -145,6 +267,7 @@ final class CanvasState {
         isDrawing = false
         drawingStartPoint = nil
         drawingCurrentPoint = nil
+        smartSketchPoints = []
         activeGuideLines = []
         liveMeasurementText = nil
         liveMeasurementPosition = nil
@@ -152,25 +275,19 @@ final class CanvasState {
 
     // MARK: - Viewport Transforms
 
-    /// Convert a screen point to canvas (world) coordinates
     func screenToCanvas(_ screenPoint: CGPoint, canvasSize: CGSize) -> SerializablePoint {
         let centerX = canvasSize.width / 2
         let centerY = canvasSize.height / 2
-
         let canvasX = (Double(screenPoint.x) - Double(centerX) - Double(viewportOffset.width)) / Double(viewportZoom)
         let canvasY = (Double(screenPoint.y) - Double(centerY) - Double(viewportOffset.height)) / Double(viewportZoom)
-
         return SerializablePoint(x: canvasX, y: canvasY)
     }
 
-    /// Convert a canvas (world) point to screen coordinates
     func canvasToScreen(_ canvasPoint: SerializablePoint, canvasSize: CGSize) -> CGPoint {
         let centerX = canvasSize.width / 2
         let centerY = canvasSize.height / 2
-
         let screenX = canvasPoint.x * Double(viewportZoom) + Double(centerX) + Double(viewportOffset.width)
         let screenY = canvasPoint.y * Double(viewportZoom) + Double(centerY) + Double(viewportOffset.height)
-
         return CGPoint(x: screenX, y: screenY)
     }
 
@@ -178,7 +295,7 @@ final class CanvasState {
 
     func recordAction(_ action: CanvasAction) {
         undoStack.append(action)
-        redoStack.removeAll() // clear redo stack on new action
+        redoStack.removeAll()
     }
 
     func clearSelection() {

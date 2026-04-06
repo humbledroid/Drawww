@@ -4,6 +4,10 @@ import simd
 
 // MARK: - Unit System
 
+/// 1 foot = 0.3048 meters exactly
+let kFeetPerMeter: Double = 1.0 / 0.3048  // ≈ 3.28084
+let kMetersPerFoot: Double = 0.3048
+
 enum UnitSystem: String, Codable, CaseIterable {
     case imperial // ft/in
     case metric   // m/cm
@@ -15,14 +19,39 @@ enum UnitSystem: String, Codable, CaseIterable {
         }
     }
 
+    var baseUnitLabel: String {
+        switch self {
+        case .imperial: return "ft"
+        case .metric: return "m"
+        }
+    }
+
+    /// Convert a pointsPerRealUnit scale factor FROM this unit system TO the other
+    func convertScale(_ pointsPerUnit: Double, to target: UnitSystem) -> Double {
+        guard self != target else { return pointsPerUnit }
+        switch (self, target) {
+        case (.imperial, .metric):
+            // pts/ft → pts/m: 1 m = 3.28084 ft, so pts/m = pts/ft × 3.28084
+            return pointsPerUnit * kFeetPerMeter
+        case (.metric, .imperial):
+            // pts/m → pts/ft: 1 ft = 0.3048 m, so pts/ft = pts/m × 0.3048
+            return pointsPerUnit * kMetersPerFoot
+        default:
+            return pointsPerUnit
+        }
+    }
+
     func formatLength(_ points: Double, scale: Double) -> String {
         let realUnits = points / scale
         switch self {
         case .imperial:
             let totalInches = realUnits * 12.0
-            let feet = Int(totalInches) / 12
-            let inches = totalInches - Double(feet * 12)
+            let feet = Int(totalInches / 1.0) / 12
+            let inches = totalInches - Double(feet) * 12.0
             if feet > 0 {
+                if inches < 0.05 {
+                    return String(format: "%d'", feet)
+                }
                 return String(format: "%d' %.1f\"", feet, inches)
             } else {
                 return String(format: "%.1f\"", inches)
@@ -31,7 +60,7 @@ enum UnitSystem: String, Codable, CaseIterable {
             if realUnits >= 1.0 {
                 return String(format: "%.2f m", realUnits)
             } else {
-                return String(format: "%.0f cm", realUnits * 100)
+                return String(format: "%.0f cm", realUnits * 100.0)
             }
         }
     }
@@ -238,10 +267,33 @@ final class FloorPlanProject {
     @Relationship(deleteRule: .cascade, inverse: \TextLabel.project)
     var textLabels: [TextLabel]
 
+    @Relationship(deleteRule: .cascade, inverse: \DraftingShape.project)
+    var draftingShapes: [DraftingShape]
+
+    @Relationship(deleteRule: .cascade, inverse: \SectionCutLine.project)
+    var sectionCuts: [SectionCutLine]
+
+    @Relationship(deleteRule: .cascade, inverse: \HeightMarker.project)
+    var heightMarkers: [HeightMarker]
+
+    @Relationship(deleteRule: .cascade, inverse: \StairSymbol.project)
+    var stairs: [StairSymbol]
+
+    @Relationship(deleteRule: .cascade, inverse: \HatchRegion.project)
+    var hatchRegions: [HatchRegion]
+
+    @Relationship(deleteRule: .cascade, inverse: \ElevationArrow.project)
+    var elevationArrows: [ElevationArrow]
+
     @Transient
     var unitSystem: UnitSystem {
         get { UnitSystem(rawValue: unitSystemRaw) ?? .imperial }
-        set { unitSystemRaw = newValue.rawValue }
+        set {
+            let oldSystem = unitSystem
+            unitSystemRaw = newValue.rawValue
+            // Convert scale factor so measurements stay correct
+            pointsPerRealUnit = oldSystem.convertScale(pointsPerRealUnit, to: newValue)
+        }
     }
 
     init(name: String = "Untitled Plan", unitSystem: UnitSystem = .imperial) {
@@ -250,13 +302,26 @@ final class FloorPlanProject {
         self.createdAt = Date()
         self.modifiedAt = Date()
         self.unitSystemRaw = unitSystem.rawValue
-        self.pointsPerRealUnit = 72.0 // default: 72 pts = 1 foot (or 1 meter)
+        // Default: 72 pts = 1 foot (1 screen inch = 1 real foot)
+        // If metric: 72 / 0.3048 ≈ 236.22 pts = 1 meter
+        switch unitSystem {
+        case .imperial:
+            self.pointsPerRealUnit = 72.0
+        case .metric:
+            self.pointsPerRealUnit = 72.0 * kFeetPerMeter // ≈ 236.22
+        }
         self.viewportOffsetX = 0
         self.viewportOffsetY = 0
         self.viewportZoom = 1.0
         self.walls = []
         self.dimensionLines = []
         self.textLabels = []
+        self.draftingShapes = []
+        self.sectionCuts = []
+        self.heightMarkers = []
+        self.stairs = []
+        self.hatchRegions = []
+        self.elevationArrows = []
     }
 
     func touch() {
