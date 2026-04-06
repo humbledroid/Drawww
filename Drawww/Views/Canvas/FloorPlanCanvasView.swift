@@ -36,7 +36,6 @@ struct FloorPlanCanvasView: View {
                     PencilKitCanvasView(
                         canvasDrawing: $canvasState.sketchDrawing,
                         isActive: .constant(true),
-                        toolPicker: .shared(for: UIView()),
                         inkColor: .label,
                         inkWidth: 2.0,
                         isErasing: false
@@ -139,7 +138,7 @@ struct FloorPlanCanvasView: View {
 
     private func handleDrawEnded(_ screenPoint: CGPoint, canvasSize: CGSize) {
         guard canvasState.isDrawing else { return }
-        let canvasPoint = canvasState.screenToCanvas(screenPoint, canvasSize: canvasSize)
+        _ = canvasState.screenToCanvas(screenPoint, canvasSize: canvasSize)
 
         switch canvasState.activeTool {
         case .wall:

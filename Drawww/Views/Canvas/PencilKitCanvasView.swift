@@ -3,10 +3,10 @@ import PencilKit
 
 /// PencilKit layer for freeform sketching — sits on top of the structured geometry canvas.
 /// Provides paper-like drawing with pressure sensitivity, tilt, and natural ink feel.
+/// We use our own tool palette, so PKToolPicker is not shown.
 struct PencilKitCanvasView: UIViewRepresentable {
     @Binding var canvasDrawing: PKDrawing
     @Binding var isActive: Bool
-    let toolPicker: PKToolPicker
     var inkColor: UIColor
     var inkWidth: CGFloat
     var isErasing: Bool
@@ -17,41 +17,22 @@ struct PencilKitCanvasView: UIViewRepresentable {
         canvas.drawing = canvasDrawing
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
-        canvas.drawingPolicy = .pencilOnly  // Finger gestures reserved for pan/zoom
-        canvas.isScrollEnabled = false       // We handle our own pan/zoom
+        canvas.drawingPolicy = .pencilOnly
+        canvas.isScrollEnabled = false
         canvas.overrideUserInterfaceStyle = .unspecified
         canvas.minimumZoomScale = 1.0
         canvas.maximumZoomScale = 1.0
 
-        // Configure tool
         updateTool(on: canvas)
-
-        // Show tool picker when active
-        if isActive {
-            toolPicker.setVisible(true, forFirstResponder: canvas)
-            toolPicker.addObserver(canvas)
-            canvas.becomeFirstResponder()
-        }
-
         return canvas
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
-        // Update drawing if changed externally
         if canvas.drawing != canvasDrawing {
             canvas.drawing = canvasDrawing
         }
-
         updateTool(on: canvas)
-
-        // Toggle tool picker visibility
-        if isActive {
-            toolPicker.setVisible(false, forFirstResponder: canvas)
-            // We use our own tool palette, not Apple's PKToolPicker
-            canvas.isUserInteractionEnabled = true
-        } else {
-            canvas.isUserInteractionEnabled = false
-        }
+        canvas.isUserInteractionEnabled = isActive
     }
 
     private func updateTool(on canvas: PKCanvasView) {
