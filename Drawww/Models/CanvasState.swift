@@ -9,7 +9,8 @@ enum DrawingTool: String, CaseIterable, Identifiable {
     // Core tools
     case wall
     case select
-    case eraser
+    case objectEraser    // tap a whole wall/shape to delete it
+    case strokeEraser    // scrub across PencilKit sketch strokes to erase them
 
     // Paper-like tools
     case sketch          // freeform PencilKit with pressure
@@ -39,7 +40,8 @@ enum DrawingTool: String, CaseIterable, Identifiable {
         switch self {
         case .wall: return "Wall"
         case .select: return "Select"
-        case .eraser: return "Eraser"
+        case .objectEraser: return "Object Erase"
+        case .strokeEraser: return "Stroke Erase"
         case .sketch: return "Sketch"
         case .smartSketch: return "Smart"
         case .line: return "Line"
@@ -61,7 +63,8 @@ enum DrawingTool: String, CaseIterable, Identifiable {
         switch self {
         case .wall: return "line.diagonal"
         case .select: return "cursorarrow"
-        case .eraser: return "eraser"
+        case .objectEraser: return "trash"
+        case .strokeEraser: return "eraser"
         case .sketch: return "pencil.tip"
         case .smartSketch: return "pencil.tip.crop.circle"
         case .line: return "line.diagonal"
@@ -82,7 +85,7 @@ enum DrawingTool: String, CaseIterable, Identifiable {
     /// Grouping for the tool palette
     var group: ToolGroup {
         switch self {
-        case .wall, .select, .eraser: return .core
+        case .wall, .select, .objectEraser, .strokeEraser: return .core
         case .sketch, .smartSketch: return .paper
         case .line, .circle, .arc, .rectangle: return .drafting
         case .sectionCut, .heightMarker, .stairSymbol, .hatchRegion, .elevationArrow: return .elevation
@@ -92,7 +95,7 @@ enum DrawingTool: String, CaseIterable, Identifiable {
 
     /// Tools shown in the radial menu (most used)
     static var radialMenuTools: [DrawingTool] {
-        [.wall, .sketch, .smartSketch, .select, .eraser, .line]
+        [.wall, .sketch, .smartSketch, .select, .objectEraser, .strokeEraser]
     }
 }
 

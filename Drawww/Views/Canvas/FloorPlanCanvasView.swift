@@ -32,19 +32,19 @@ struct FloorPlanCanvasView: View {
                 )
 
                 // PencilKit sketch layer (only interactive when sketch tool is active)
-                if canvasState.activeTool == .sketch {
+                if canvasState.activeTool == .sketch || canvasState.activeTool == .strokeEraser {
                     PencilKitCanvasView(
                         canvasDrawing: $canvasState.sketchDrawing,
                         isActive: .constant(true),
                         inkColor: .label,
                         inkWidth: 2.0,
-                        isErasing: false
+                        isErasing: canvasState.activeTool == .strokeEraser
                     )
                     .allowsHitTesting(true)
                 }
 
                 // Gesture overlay (for non-sketch tools)
-                if canvasState.activeTool != .sketch {
+                if canvasState.activeTool != .sketch && canvasState.activeTool != .strokeEraser {
                     CanvasGestureView(
                         canvasState: canvasState,
                         canvasSize: geometry.size,
@@ -99,8 +99,10 @@ struct FloorPlanCanvasView: View {
             startSmartSketch(canvasPoint)
         case .sectionCut:
             startLineDraw(canvasPoint)
-        case .eraser:
+        case .objectEraser:
             handleErase(canvasPoint)
+        case .strokeEraser:
+            break // handled by PencilKitCanvasView in erasing mode
         case .select:
             handleSelect(canvasPoint)
         case .heightMarker:
