@@ -1,5 +1,20 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+
+// MARK: - PDF FileDocument wrapper for .fileExporter
+struct PDFDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.pdf] }
+    let data: Data
+
+    init(data: Data) { self.data = data }
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
 
 /// Main editor view that composes the canvas, tool palette, and top bar.
 struct FloorPlanEditorView: View {
@@ -7,9 +22,9 @@ struct FloorPlanEditorView: View {
     @Bindable var project: FloorPlanProject
     @State private var canvasState = CanvasState()
     @State private var showCalibrationSheet = false
-    @State private var showExportShareSheet = false
+    @State private var showExportSheet = false
     @State private var showLinePropertiesPopover = false
-    @State private var exportedPDFURL: URL?
+    @State private var exportDocument: PDFDocument?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,9 +68,17 @@ struct FloorPlanEditorView: View {
             ScaleCalibrationSheet(project: project)
                 .presentationDetents([.medium])
         }
-        .sheet(isPresented: $showExportShareSheet) {
-            if let url = exportedPDFURL {
-                ShareSheetView(items: [url])
+        .fileExporter(
+            isPresented: $showExportSheet,
+            document: exportDocument,
+            contentType: .pdf,
+            defaultFilename: "\(project.name).pdf"
+        ) { result in
+            switch result {
+            case .success(let url):
+                print("PDF saved to \(url)")
+            case .failure(let error):
+                print("PDF export error: \(error)")
             }
         }
         .onAppear {
@@ -235,29 +258,9 @@ struct FloorPlanEditorView: View {
 
     private func exportPDF() {
         let pdfData = PDFExporter.exportPDF(project: project)
-        let fileName = "\(project.name.replacingOccurrences(of: " ", with: "_")).pdf"
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-        try? pdfData.write(to: tempURL)
-        exportedPDFURL = tempURL
-        showExportShareSheet = true
+        exportDocument = PDFDocument(data: pdfData)
+        showExportSheet = true
     }
-}
-
-// MARK: - Share Sheet
-
-struct ShareSheetView: UIViewControllerRepresentable {
-    let items: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        // iPad requires a popover source — otherwise the share sheet crashes.
-        if let pop = vc.popoverPresentationController {
-            pop.sourceView = UIView()
-            pop.sourceRect = CGRect(x: 0, y: 0, width: 1, height: 1)
-            pop.permittedArrowDirections = []
-        }
-        return vc
-    }
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Line Properties Popover

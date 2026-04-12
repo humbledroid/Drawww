@@ -5,6 +5,7 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 /// Home screen — lists all projects, lets user create/open/delete/rename/export.
 struct ContentView: View {
@@ -14,8 +15,8 @@ struct ContentView: View {
     @State private var selectedProject: FloorPlanProject?
     @State private var renameTarget: FloorPlanProject?
     @State private var renameText: String = ""
-    @State private var exportedPDFURL: URL?
-    @State private var showShare = false
+    @State private var exportDocument: PDFDocument?
+    @State private var showExport = false
 
     private let columns = [GridItem(.adaptive(minimum: 220, maximum: 280), spacing: 20)]
 
@@ -64,11 +65,12 @@ struct ContentView: View {
                     renameTarget = nil
                 }
             }
-            .sheet(isPresented: $showShare) {
-                if let url = exportedPDFURL {
-                    ShareSheetView(items: [url])
-                }
-            }
+            .fileExporter(
+                isPresented: $showExport,
+                document: exportDocument,
+                contentType: .pdf,
+                defaultFilename: "FloorPlan.pdf"
+            ) { _ in }
         }
     }
 
@@ -213,11 +215,8 @@ struct ContentView: View {
 
     private func exportPDF(_ project: FloorPlanProject) {
         let data = PDFExporter.exportPDF(project: project)
-        let name = project.name.replacingOccurrences(of: " ", with: "_")
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).pdf")
-        try? data.write(to: url)
-        exportedPDFURL = url
-        showShare = true
+        exportDocument = PDFDocument(data: data)
+        showExport = true
     }
 
     private func formattedDate(_ date: Date) -> String {

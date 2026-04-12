@@ -10,12 +10,13 @@ struct PDFExporter {
         paperSize: CGSize = CGSize(width: 792, height: 612) // Letter landscape
     ) -> Data {
         let walls = project.walls
-        guard !walls.isEmpty else {
+        let shapes = project.draftingShapes.filter { !$0.isConstructionLine }
+        guard !walls.isEmpty || !shapes.isEmpty else {
             return createEmptyPDF(size: paperSize, projectName: project.name)
         }
 
-        // Calculate bounding box of all walls
-        let bounds = calculateBounds(walls: walls)
+        // Calculate bounding box of all walls + shapes
+        let bounds = calculateBounds(walls: walls, shapes: shapes)
         let margin: Double = 50
 
         // Calculate scale to fit on page
@@ -97,6 +98,54 @@ struct PDFExporter {
                 }
             }
 
+            // Draw drafting shapes
+            cgContext.setStrokeColor(UIColor.darkGray.cgColor)
+            for shape in shapes {
+                cgContext.setLineWidth(shape.lineWeight.width)
+                let dash = shape.lineStyle.dashPattern.map { CGFloat($0) }
+                cgContext.setLineDash(phase: 0, lengths: dash)
+
+                switch shape.shapeType {
+                case .line:
+                    let s = toPDF(SerializablePoint(x: shape.x1, y: shape.y1))
+                    let e = toPDF(SerializablePoint(x: shape.x2, y: shape.y2))
+                    cgContext.move(to: s)
+                    cgContext.addLine(to: e)
+                    cgContext.strokePath()
+                case .circle:
+                    let c = toPDF(SerializablePoint(x: shape.x1, y: shape.y1))
+                    let r = shape.x2 * pdfScale
+                    cgContext.strokeEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+                case .rectangle:
+                    let o = toPDF(SerializablePoint(x: shape.x1, y: shape.y1))
+                    let w = shape.x2 * pdfScale
+                    let h = shape.y2 * pdfScale
+                    cgContext.stroke(CGRect(x: o.x, y: o.y, width: w, height: h))
+                case .arc:
+                    let c = toPDF(SerializablePoint(x: shape.x1, y: shape.y1))
+                    let r = shape.x2 * pdfScale
+                    cgContext.addArc(center: c, radius: r, startAngle: shape.startAngle, endAngle: shape.endAngle, clockwise: false)
+                    cgContext.strokePath()
+                case .triangle:
+                    let p1 = toPDF(SerializablePoint(x: shape.x1, y: shape.y1))
+                    let p2 = toPDF(SerializablePoint(x: shape.x2, y: shape.y2))
+                    let p3 = toPDF(SerializablePoint(x: shape.x3, y: shape.y3))
+                    cgContext.move(to: p1)
+                    cgContext.addLine(to: p2)
+                    cgContext.addLine(to: p3)
+                    cgContext.closePath()
+                    cgContext.strokePath()
+                default:
+                    break
+                }
+                // Reset dash
+                cgContext.setLineDash(phase: 0, lengths: [])
+            }
+
+            // Reset for wall labels
+            cgContext.setStrokeColor(UIColor.black.cgColor)
+            cgContext.setLineWidth(2.0)
+
             // Draw measurement labels
             let labelAttributes: [NSAttributedString.Key: Any] = [
                 .font: UIFont.monospacedSystemFont(ofSize: 9, weight: .medium),
@@ -168,16 +217,41 @@ struct PDFExporter {
 
     // MARK: - Helpers
 
-    private static func calculateBounds(walls: [WallSegment]) -> (minX: Double, minY: Double, maxX: Double, maxY: Double) {
+    private static func calculateBounds(walls: [WallSegment], shapes: [DraftingShape] = []) -> (minX: Double, minY: Double, maxX: Double, maxY: Double) {
         var minX = Double.infinity, minY = Double.infinity
         var maxX = -Double.infinity, maxY = -Double.infinity
 
+        func include(_ x: Double, _ y: Double) {
+            minX = min(minX, x); minY = min(minY, y)
+            maxX = max(maxX, x); maxY = max(maxY, y)
+        }
+
         for wall in walls {
-            for point in [wall.start, wall.end] {
-                minX = min(minX, point.x)
-                minY = min(minY, point.y)
-                maxX = max(maxX, point.x)
-                maxY = max(maxY, point.y)
+            include(wall.start.x, wall.start.y)
+            include(wall.end.x, wall.end.y)
+        }
+
+        for shape in shapes {
+            switch shape.shapeType {
+            case .line:
+                include(shape.x1, shape.y1)
+                include(shape.x2, shape.y2)
+            case .circle:
+                include(shape.x1 - shape.x2, shape.y1 - shape.x2)
+                include(shape.x1 + shape.x2, shape.y1 + shape.x2)
+            case .rectangle:
+                include(shape.x1, shape.y1)
+                include(shape.x1 + shape.x2, shape.y1 + shape.y2)
+            case .arc:
+                include(shape.x1 - shape.x2, shape.y1 - shape.x2)
+                include(shape.x1 + shape.x2, shape.y1 + shape.x2)
+            case .triangle:
+                include(shape.x1, shape.y1)
+                include(shape.x2, shape.y2)
+                include(shape.x3, shape.y3)
+            default:
+                include(shape.x1, shape.y1)
+                include(shape.x2, shape.y2)
             }
         }
 
