@@ -83,11 +83,13 @@ struct ToolPaletteView: View {
                 .font(.system(size: 14))
             Text(group.label)
                 .font(.system(size: 9, weight: .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Image(systemName: "chevron.right")
                 .font(.system(size: 8, weight: .bold))
                 .rotationEffect(isExpanded ? .degrees(90) : .degrees(0))
         }
-        .frame(width: 56, height: 28)
+        .frame(width: 80, height: 28)
         .foregroundColor(hasActiveTool ? .white : .secondary)
         .background(
             hasActiveTool
@@ -125,9 +127,11 @@ struct ToolButton: View {
                 .frame(width: 44, height: 36)
             Text(tool.label)
                 .font(.system(size: 9, weight: .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
         .foregroundColor(isSelected ? .white : .primary)
-        .frame(width: 56, height: 52)
+        .frame(width: 80, height: 52)
         .background(
             isSelected
                 ? AnyShapeStyle(Color.accentColor)
@@ -143,9 +147,11 @@ struct ToolButton: View {
                 .frame(width: 20)
             Text(tool.label)
                 .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .foregroundColor(isSelected ? .white : .primary)
-        .frame(width: 56, height: 30)
+        .frame(width: 80, height: 30)
         .background(
             isSelected
                 ? AnyShapeStyle(Color.accentColor)

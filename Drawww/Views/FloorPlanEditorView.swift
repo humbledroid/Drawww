@@ -47,6 +47,8 @@ struct FloorPlanEditorView: View {
                     .padding(12)
             }
         }
+        .navigationTitle(project.name)
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showCalibrationSheet) {
             ScaleCalibrationSheet(project: project)
                 .presentationDetents([.medium])
@@ -246,7 +248,14 @@ struct FloorPlanEditorView: View {
 struct ShareSheetView: UIViewControllerRepresentable {
     let items: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        // iPad requires a popover source — otherwise the share sheet crashes.
+        if let pop = vc.popoverPresentationController {
+            pop.sourceView = UIView()
+            pop.sourceRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+            pop.permittedArrowDirections = []
+        }
+        return vc
     }
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
