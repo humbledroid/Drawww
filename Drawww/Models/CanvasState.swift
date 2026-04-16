@@ -244,6 +244,9 @@ final class CanvasState {
     // Construction lines visibility
     var showConstructionLines: Bool = true
 
+    // Angle annotations at wall/line junctions
+    var showAngles: Bool = true
+
     // Undo/Redo stacks
     var undoStack: [CanvasAction] = []
     var redoStack: [CanvasAction] = []

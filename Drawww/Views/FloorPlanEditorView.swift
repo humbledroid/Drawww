@@ -3,7 +3,7 @@ import SwiftData
 import UniformTypeIdentifiers
 
 // MARK: - PDF FileDocument wrapper for .fileExporter
-struct PDFDocument: FileDocument {
+struct ExportablePDF: FileDocument {
     static var readableContentTypes: [UTType] { [.pdf] }
     let data: Data
 
@@ -24,7 +24,7 @@ struct FloorPlanEditorView: View {
     @State private var showCalibrationSheet = false
     @State private var showExportSheet = false
     @State private var showLinePropertiesPopover = false
-    @State private var exportDocument: PDFDocument?
+    @State private var exportPDFDoc: ExportablePDF?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,7 +70,7 @@ struct FloorPlanEditorView: View {
         }
         .fileExporter(
             isPresented: $showExportSheet,
-            document: exportDocument,
+            document: exportPDFDoc,
             contentType: .pdf,
             defaultFilename: "\(project.name).pdf"
         ) { result in
@@ -80,6 +80,7 @@ struct FloorPlanEditorView: View {
             case .failure(let error):
                 print("PDF export error: \(error)")
             }
+            exportPDFDoc = nil
         }
         .onAppear {
             canvasState.viewportOffset = CGSize(width: project.viewportOffsetX, height: project.viewportOffsetY)
@@ -258,8 +259,11 @@ struct FloorPlanEditorView: View {
 
     private func exportPDF() {
         let pdfData = PDFExporter.exportPDF(project: project)
-        exportDocument = PDFDocument(data: pdfData)
-        showExportSheet = true
+        exportPDFDoc = ExportablePDF(data: pdfData)
+        // Slight delay to ensure SwiftUI picks up the non-nil document before presenting
+        DispatchQueue.main.async {
+            showExportSheet = true
+        }
     }
 }
 

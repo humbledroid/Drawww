@@ -15,7 +15,7 @@ struct ContentView: View {
     @State private var selectedProject: FloorPlanProject?
     @State private var renameTarget: FloorPlanProject?
     @State private var renameText: String = ""
-    @State private var exportDocument: PDFDocument?
+    @State private var exportPDFDoc: ExportablePDF?
     @State private var showExport = false
 
     private let columns = [GridItem(.adaptive(minimum: 220, maximum: 280), spacing: 20)]
@@ -67,10 +67,12 @@ struct ContentView: View {
             }
             .fileExporter(
                 isPresented: $showExport,
-                document: exportDocument,
+                document: exportPDFDoc,
                 contentType: .pdf,
                 defaultFilename: "FloorPlan.pdf"
-            ) { _ in }
+            ) { _ in
+                exportPDFDoc = nil
+            }
         }
     }
 
@@ -215,8 +217,10 @@ struct ContentView: View {
 
     private func exportPDF(_ project: FloorPlanProject) {
         let data = PDFExporter.exportPDF(project: project)
-        exportDocument = PDFDocument(data: data)
-        showExport = true
+        exportPDFDoc = ExportablePDF(data: data)
+        DispatchQueue.main.async {
+            showExport = true
+        }
     }
 
     private func formattedDate(_ date: Date) -> String {

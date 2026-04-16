@@ -67,6 +67,11 @@ struct CanvasRenderer: View {
                 drawWall(context: &context, wall: wall, toScreen: toScreen, zoom: zoom)
             }
 
+            // 5b. Angle annotations at wall junctions
+            if canvasState.showAngles {
+                drawAngleAnnotations(context: &context, toScreen: toScreen, zoom: zoom)
+            }
+
             // 6. Drafting shapes
             drawDraftingShapes(context: &context, toScreen: toScreen, zoom: zoom)
 
@@ -503,12 +508,266 @@ struct CanvasRenderer: View {
             }
         }
 
+        // Live angle display when drawing from an existing wall endpoint
+        if canvasState.showAngles && [.wall, .line, .constructionLine].contains(tool) {
+            drawLiveAngle(context: &context, start: start, current: current, toScreen: toScreen, zoom: zoom)
+        }
+
         // Snap indicator dot
         let endScreen = toScreen(current)
         context.fill(
             Path(ellipseIn: CGRect(x: endScreen.x - 5, y: endScreen.y - 5, width: 10, height: 10)),
             with: .color(snapPointColor)
         )
+    }
+
+    // MARK: - Angle Annotations
+
+    private let angleColor = Color.orange
+    private let angleArcRadius: Double = 28 // base radius in canvas pts
+
+    /// Draw angle arcs at every junction where two or more walls/lines share an endpoint.
+    private func drawAngleAnnotations(context: inout GraphicsContext, toScreen: (SerializablePoint) -> CGPoint, zoom: CGFloat) {
+        let threshold = 5.0 // max distance to consider endpoints "shared"
+
+        // Collect all line segments (endpoint, direction) from walls, lines, rectangle edges, triangle edges
+        struct Segment {
+            let endpoint: SerializablePoint
+            let dir: Double
+        }
+        var allSegments: [Segment] = []
+
+        // Walls
+        for wall in walls {
+            let dir = atan2(wall.end.y - wall.start.y, wall.end.x - wall.start.x)
+            allSegments.append(Segment(endpoint: wall.start, dir: dir))
+            allSegments.append(Segment(endpoint: wall.end, dir: dir + .pi))
+        }
+
+        // Drafting lines
+        for shape in draftingShapes where !shape.isConstructionLine {
+            switch shape.shapeType {
+            case .line:
+                let sp = SerializablePoint(x: shape.x1, y: shape.y1)
+                let ep = SerializablePoint(x: shape.x2, y: shape.y2)
+                let dir = atan2(ep.y - sp.y, ep.x - sp.x)
+                allSegments.append(Segment(endpoint: sp, dir: dir))
+                allSegments.append(Segment(endpoint: ep, dir: dir + .pi))
+
+            case .rectangle:
+                // 4 corners, 4 edges
+                let o = SerializablePoint(x: shape.x1, y: shape.y1)
+                let w = shape.x2, h = shape.y2
+                let corners = [
+                    o,
+                    SerializablePoint(x: o.x + w, y: o.y),
+                    SerializablePoint(x: o.x + w, y: o.y + h),
+                    SerializablePoint(x: o.x, y: o.y + h)
+                ]
+                for i in 0..<4 {
+                    let a = corners[i]
+                    let b = corners[(i + 1) % 4]
+                    let dir = atan2(b.y - a.y, b.x - a.x)
+                    allSegments.append(Segment(endpoint: a, dir: dir))
+                    allSegments.append(Segment(endpoint: b, dir: dir + .pi))
+                }
+
+            case .triangle:
+                let pts = [
+                    SerializablePoint(x: shape.x1, y: shape.y1),
+                    SerializablePoint(x: shape.x2, y: shape.y2),
+                    SerializablePoint(x: shape.x3, y: shape.y3)
+                ]
+                for i in 0..<3 {
+                    let a = pts[i]
+                    let b = pts[(i + 1) % 3]
+                    let dir = atan2(b.y - a.y, b.x - a.x)
+                    allSegments.append(Segment(endpoint: a, dir: dir))
+                    allSegments.append(Segment(endpoint: b, dir: dir + .pi))
+                }
+
+            default:
+                break
+            }
+        }
+
+        // Cluster segments by proximity into junctions
+        var junctions: [(point: SerializablePoint, dirs: [Double])] = []
+
+        for seg in allSegments {
+            var found = false
+            for i in 0..<junctions.count {
+                if junctions[i].point.distance(to: seg.endpoint) < threshold {
+                    junctions[i].dirs.append(seg.dir)
+                    found = true
+                    break
+                }
+            }
+            if !found {
+                junctions.append((point: seg.endpoint, dirs: [seg.dir]))
+            }
+        }
+
+        // For each junction with 2+ lines, draw angle arcs between consecutive pairs
+        for junction in junctions {
+            let directions = junction.dirs
+            let point = junction.point
+            guard directions.count >= 2 else { continue }
+
+            // Normalize all directions to [0, 2π) and deduplicate near-identical angles
+            let normalized = directions.map { d -> Double in
+                var a = d
+                while a < 0 { a += 2 * .pi }
+                while a >= 2 * .pi { a -= 2 * .pi }
+                return a
+            }
+            let unique = normalized.reduce(into: [Double]()) { result, angle in
+                if !result.contains(where: { abs($0 - angle) < 0.05 }) {
+                    result.append(angle)
+                }
+            }
+            guard unique.count >= 2 else { continue }
+
+            // Sort directions by angle
+            let sorted = unique.sorted()
+
+            // Draw angle arc between each consecutive pair
+            for i in 0..<sorted.count {
+                let j = (i + 1) % sorted.count
+                let startAngle = sorted[i]
+                let endAngle = sorted[j]
+
+                // Ensure we get the smaller angle between the two
+                var sweep = endAngle - startAngle
+                if sweep < 0 { sweep += 2 * .pi }
+
+                // Only show angles < 180° (the acute/right side)
+                if sweep > .pi { continue }
+
+                let degrees = sweep * 180.0 / .pi
+                // Skip very small or very large (near-straight) angles
+                if degrees < 2 || degrees > 178 { continue }
+
+                let screenPt = toScreen(point)
+                let r = angleArcRadius * Double(zoom)
+
+                // Draw the arc
+                var arcPath = Path()
+                arcPath.addArc(
+                    center: screenPt,
+                    radius: r,
+                    startAngle: .radians(startAngle),
+                    endAngle: .radians(startAngle + sweep),
+                    clockwise: false
+                )
+                context.stroke(arcPath, with: .color(angleColor), lineWidth: 1.5)
+
+                // Right angle indicator: small square instead of arc
+                if abs(degrees - 90) < 2 {
+                    let sq: Double = 8 * Double(zoom)
+                    let bisector = startAngle + sweep / 2
+                    let cx = screenPt.x + cos(bisector) * sq * 0.9
+                    let cy = screenPt.y + sin(bisector) * sq * 0.9
+
+                    let corner1 = CGPoint(x: screenPt.x + cos(startAngle) * sq, y: screenPt.y + sin(startAngle) * sq)
+                    let corner2 = CGPoint(x: cx, y: cy)
+                    let corner3 = CGPoint(x: screenPt.x + cos(startAngle + sweep) * sq, y: screenPt.y + sin(startAngle + sweep) * sq)
+
+                    var sqPath = Path()
+                    sqPath.move(to: corner1)
+                    sqPath.addLine(to: corner2)
+                    sqPath.addLine(to: corner3)
+                    context.stroke(sqPath, with: .color(angleColor), lineWidth: 1.5)
+                }
+
+                // Angle label
+                let bisectorAngle = startAngle + sweep / 2
+                let labelR = r + 14
+                let labelPos = CGPoint(
+                    x: screenPt.x + cos(bisectorAngle) * labelR,
+                    y: screenPt.y + sin(bisectorAngle) * labelR
+                )
+
+                let angleText = String(format: "%.0f°", degrees)
+                context.draw(
+                    Text(angleText)
+                        .font(.system(size: max(9, 10 * Double(zoom)), weight: .semibold, design: .rounded))
+                        .foregroundColor(angleColor),
+                    at: labelPos
+                )
+            }
+        }
+    }
+
+    /// Show the angle between a wall being drawn and the existing wall it connects to.
+    private func drawLiveAngle(context: inout GraphicsContext, start: SerializablePoint, current: SerializablePoint, toScreen: (SerializablePoint) -> CGPoint, zoom: CGFloat) {
+        let threshold = 5.0
+        let drawDir = atan2(current.y - start.y, current.x - start.x)
+
+        // Find all existing walls whose endpoint matches the draw start
+        var connectedDirs: [Double] = []
+        for wall in walls {
+            if wall.start.distance(to: start) < threshold {
+                connectedDirs.append(atan2(wall.end.y - wall.start.y, wall.end.x - wall.start.x))
+            } else if wall.end.distance(to: start) < threshold {
+                connectedDirs.append(atan2(wall.start.y - wall.end.y, wall.start.x - wall.end.x))
+            }
+        }
+        for shape in draftingShapes where shape.shapeType == .line && !shape.isConstructionLine {
+            let sp = SerializablePoint(x: shape.x1, y: shape.y1)
+            let ep = SerializablePoint(x: shape.x2, y: shape.y2)
+            if sp.distance(to: start) < threshold {
+                connectedDirs.append(atan2(ep.y - sp.y, ep.x - sp.x))
+            } else if ep.distance(to: start) < threshold {
+                connectedDirs.append(atan2(sp.y - ep.y, sp.x - ep.x))
+            }
+        }
+
+        guard !connectedDirs.isEmpty else { return }
+
+        let screenStart = toScreen(start)
+        let r = angleArcRadius * Double(zoom)
+
+        for existingDir in connectedDirs {
+            var sweep = drawDir - existingDir
+            // Normalize to [-pi, pi]
+            while sweep > .pi { sweep -= 2 * .pi }
+            while sweep < -.pi { sweep += 2 * .pi }
+
+            let absSweep = abs(sweep)
+            let degrees = absSweep * 180.0 / .pi
+            if degrees < 2 || degrees > 178 { continue }
+
+            let arcStart = sweep > 0 ? existingDir : drawDir
+            let arcEnd = sweep > 0 ? drawDir : existingDir
+
+            // Live arc
+            var arcPath = Path()
+            arcPath.addArc(center: screenStart, radius: r, startAngle: .radians(arcStart), endAngle: .radians(arcEnd), clockwise: false)
+            context.stroke(arcPath, with: .color(angleColor.opacity(0.9)), lineWidth: 2)
+
+            // Live angle label
+            let bisector = arcStart + absSweep / 2
+            let labelR = r + 16
+            let labelPos = CGPoint(
+                x: screenStart.x + cos(bisector) * labelR,
+                y: screenStart.y + sin(bisector) * labelR
+            )
+            let angleText = String(format: "%.1f°", degrees)
+
+            let textSize = estimateTextSize(angleText, fontSize: 13)
+            let pill = CGRect(
+                x: labelPos.x - textSize.width / 2 - 5,
+                y: labelPos.y - textSize.height / 2 - 3,
+                width: textSize.width + 10,
+                height: textSize.height + 6
+            )
+            context.fill(Path(roundedRect: pill, cornerRadius: 4), with: .color(angleColor.opacity(0.9)))
+            context.draw(
+                Text(angleText).font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(.white),
+                at: labelPos
+            )
+        }
     }
 
     // MARK: - Room Areas

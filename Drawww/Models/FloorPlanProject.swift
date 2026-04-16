@@ -78,7 +78,7 @@ enum UnitSystem: String, Codable, CaseIterable {
 
 // MARK: - Serializable Point
 
-struct SerializablePoint: Codable, Equatable {
+struct SerializablePoint: Codable, Equatable, Hashable {
     var x: Double
     var y: Double
 

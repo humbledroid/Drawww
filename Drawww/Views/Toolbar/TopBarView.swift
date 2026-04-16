@@ -70,6 +70,13 @@ struct TopBarView: View {
                     .foregroundColor(canvasState.showGrid ? .accentColor : .secondary)
             }
 
+            // Angle toggle
+            Button(action: { canvasState.showAngles.toggle() }) {
+                Image(systemName: "angle")
+                    .font(.system(size: 16))
+                    .foregroundColor(canvasState.showAngles ? .orange : .secondary)
+            }
+
             // Zoom indicator
             Text("\(canvasState.zoomPercentage)%")
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
